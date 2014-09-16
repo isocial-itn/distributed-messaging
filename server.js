@@ -1,20 +1,26 @@
 var UDPPORT = 33333;
 var TCPPORT = 1337;
 var HOST = '127.0.0.1';
+var DB = 'dos';
 
 var MESSAGES = 'messages';
 var NOTIFICATIONS = 'notifications';
 
 var dgram = require('dgram');
-var server = dgram.createSocket('udp4');
+var udpServer = dgram.createSocket('udp4');
 var net = require('net');
 var http = require('http');
 var MongoClient = require('mongodb').MongoClient;
+var engine = require('engine.io');
+
+var onlineUsers = {};
 
 var createHTTPServer = function(db){
-  http.createServer(function (req, res) {
+  var httpServer = http.createServer(function (req, res) {
     handleRequests(req, res, db);
   }).listen(TCPPORT, HOST);
+  var engineServer = engine.attach(httpServer);
+  setupEngineServer(engineServer);
   console.log('Server running at http://' + HOST + ':' + TCPPORT + '/');
 };
 
@@ -23,20 +29,20 @@ var handleRequests = function(req, res, db){
     case '/':
       req.method == 'POST'?
         handlePost(req, res, db, MESSAGES):
-        handleJsonResponseMESSAGES(res, db, MESSAGES);
+        handleJsonResponse(res, db, MESSAGES);
       break;
     case '/version':
       handleVersion(res);
       break;
     case '/notifications':
-      handleJsonResponseMESSAGES(res, db, NOTIFICATIONS);
+      handleJsonResponse(res, db, NOTIFICATIONS);
       break;
     default:
       handleNotFound(res);
   }
 };
 
-var handlePost = function(req, res, db, MESSAGESName){
+var handlePost = function(req, res, db, collectionName){
   var fullBody = '';
   req.on('data', function(chunk) {
     fullBody += chunk.toString();
@@ -44,7 +50,7 @@ var handlePost = function(req, res, db, MESSAGESName){
   req.on('end', function() {
     try{
       var data = JSON.parse(fullBody);
-      postDataReady(res, data, db, MESSAGESName);
+      postDataReady(res, data, db, collectionName);
     }
     catch(err){
       errorResponse(res);
@@ -52,17 +58,17 @@ var handlePost = function(req, res, db, MESSAGESName){
   });
 };
 
-var postDataReady = function(res, data, db, MESSAGESName){
+var postDataReady = function(res, data, db, collectionName){
   (!data.source && !data.message)?
     errorResponse(res):
-    handleData(res, data, db, MESSAGESName);
+    handleData(res, data, db, collectionName);
 };
 
-var handleData = function(res, data, db, MESSAGESName){
+var handleData = function(res, data, db, collectionName){
   var date = new Date();
   data.date = date.toString();
-  var MESSAGES = db.MESSAGES(MESSAGESName);
-  MESSAGES.insert([data], {w: 1}, function(err, docsInserted){
+  var collection = db.collection(collectionName);
+  collection.insert([data], {w: 1}, function(err, docsInserted){
     err?
       errorResponse(res):
       onMessageAdded(res, docsInserted);
@@ -118,9 +124,9 @@ var sendDatagram = function(buff, host){
   });
 };
 
-var handleJsonResponseMESSAGES = function(res, db, MESSAGESName){
-  var MESSAGES = db.MESSAGES(MESSAGESName);
-  MESSAGES.find({}, {limit: 10}).toArray(function(err, results) {
+var handleJsonResponse = function(res, db, collectionName){
+  var collection = db.collection(collectionName);
+  collection.find({}, {limit: 10}).toArray(function(err, results) {
     if(err) throw err;
     sendResponse(res, serializeResults(results));
     // we do not close it, let the server take care of it when we kill it
@@ -156,25 +162,67 @@ var handleNotFound = function(res){
 
 // UDP notification server
 var createUDPServer = function(db){
-  server.on('listening', function () {
-    var address = server.address();
+  udpServer.on('listening', function () {
+    var address = udpServer.address();
     console.log('UDP Server listening on ' + address.address + ":" + address.port);
   });
-  server.on('message', function (message, remote) {
+  udpServer.on('message', function (message, remote) {
     try{
       var data = JSON.parse(message);
-      // Database test
-      var MESSAGES = db.MESSAGES(NOTIFICATIONS);
-      MESSAGES.insert([data], {w: 1}, function(err, docsInserted){
-        if (err) throw err;
-      });
       // console.log(remote.address + ':' + remote.port +' - ' + data.username + ': ' + data.post);
+      addNotification(db, data);
+      // determine if the user is online to send a message via ws
+      pushNotification(data);
     }
     catch(er){
       console.log(er);
     }
   });
-  server.bind(UDPPORT, HOST);
+  udpServer.bind(UDPPORT, HOST);
+};
+
+var addNotification = function(db, data){
+  var collection = db.collection(NOTIFICATIONS);
+  collection.insert([data], {w: 1}, function(err, docsInserted){
+    if (err) throw err;
+    // something to do after the notification was added
+  });
+};
+
+var pushNotification = function (notification){
+  var ws = onlineUsers[notification.user];
+  if(!ws) return 0;
+  // send via the socket
+  ws.send(JSON.stringify(notification));
+  return 1;
+};
+
+// Engine.io Server
+var setupEngineServer = function(engineServer){
+  engineServer.on('connection', function(socket){
+    // socket.send('utf 8 string').close();
+    // socket.send(new Buffer([0, 1, 2, 3, 4, 5])); // binary data
+    socket.on('message', parseWS);
+  });
+};
+
+var parseWS = function(buff){
+  // console.log("Message from ws : " + data.toString());
+  try{
+    var data = JSON.parse(buff);
+    (!data.user)? this.close(): userInWS(data, this);
+  }catch(err){
+    this.close();
+  }
+};
+
+var userInWS = function(data, socket){
+  onlineUsers[data.user] = socket;
+  socket.send("OK");
+  socket.on('close', function(){
+    onlineUsers[data.user] = null; // null pointer
+    delete onlineUsers[data.user]; // remove property
+  });
 };
 
 // Run UDP and HTTP services
@@ -187,5 +235,5 @@ var createServers = function (err, db){
 
 // first connect to the db
 // then create the HTTP server
-MongoClient.connect('mongodb://127.0.0.1:27017/dos', createServers);
+MongoClient.connect('mongodb://127.0.0.1:27017/' + DB, createServers);
 

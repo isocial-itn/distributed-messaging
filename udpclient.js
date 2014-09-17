@@ -1,3 +1,9 @@
+/*
+Based on Hack Sparrow's example:
+Node.js UDP Server and Client Example
+Available at http://www.hacksparrow.com/node-js-udp-server-and-client-example.html
+*/
+
 var PORT = 33333;
 var HOST = '127.0.0.1';
 
@@ -24,9 +30,18 @@ var sendDatagram = function(jsonData){
     client.close();
   });
 };
+
+// call the method to send the datagram
+sendDatagram(jsonData);
+
 /*
-var num = 1;
-var time = 1
+The next part is an addition to simulate several concurrent connections and test performance.
+*/
+
+// Uncomment if needed for perfomance testing.
+/*
+var num = 1; // number of clients to emulate
+var time = 1 // the duration of the test
 
 var clients = [];
 for (var i = 0; i <= num; i ++){
@@ -45,4 +60,3 @@ setTimeout(function(){
 console.log('UDP clients begin ' + num + ' instances for ' + time + ' seconds' );
 */
 
-sendDatagram(jsonData);

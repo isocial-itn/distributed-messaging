@@ -191,10 +191,8 @@ var addNotification = function(db, data){
 
 var pushNotification = function (notification){
   var ws = onlineUsers[notification.user];
-  if(!ws) return 0;
   // send via the socket
-  ws.send(JSON.stringify(notification));
-  return 1;
+  if(ws) ws.send(JSON.stringify(notification));
 };
 
 // Engine.io Server
@@ -219,6 +217,7 @@ var parseWS = function(buff){
 var userInWS = function(data, socket){
   onlineUsers[data.user] = socket;
   socket.send("OK");
+  // remove the web socket instance when the user closes the connection
   socket.on('close', function(){
     onlineUsers[data.user] = null; // null pointer
     delete onlineUsers[data.user]; // remove property

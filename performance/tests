@@ -1,0 +1,10 @@
+#!/bin/bash
+
+siege http://10.16.21.214:1337/ -c180 -t5M -l180connections5minutes.log
+siege http://10.16.21.214:1337/ -c190 -t5M -l190connections5minutes.log
+siege http://10.16.21.214:1337/ -c200 -t5M -l200connections5minutes.log
+siege http://10.16.21.214:1337/ -c210 -t5M -l210connections5minutes.log
+siege http://10.16.21.214:1337/ -c220 -t5M -l220connections5minutes.log
+siege http://10.16.21.214:1337/ -c230 -t5M -l230connections5minutes.log
+siege http://10.16.21.214:1337/ -c240 -t5M -l240connections5minutes.log
+siege http://10.16.21.214:1337/ -c250 -t5M -l250connections5minutes.log
